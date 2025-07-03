@@ -1,0 +1,48 @@
+{% autoescape on %}
+  <html>
+  <style>
+    .toweosp {
+        background-color: lightgray;
+        border: 1px solid #888;
+        border-collapse: separate;
+        border-spacing: 2px;
+        font-family: monospace;
+      }
+
+      .toweosp td {
+        padding: 2px;
+      }
+
+      .toweosp td:first-child {
+        color: gray;
+        text-align: right;
+      }
+
+      .toweosp td:nth-child(2) {
+        color: black;
+      }
+
+      .toweosp tr:nth-child(2) td:nth-child(2) {
+        font-weight: bold;
+      }
+    
+  </style>
+
+  <head>
+    <meta charset="UTF-8">
+  </head>
+
+  <body>
+
+    <table class="toweosp" width="100%">
+      {% for label, value in header %}
+      <tr>
+        <td>{{ label }}</td>
+        <td>{{ value }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p></p>
+</body>
+</html>
+{% endautoescape %}
