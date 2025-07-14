@@ -1,3 +1,4 @@
+import subprocess
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils.safestring import SafeText
@@ -20,6 +21,8 @@ from tika_client.data_models import TikaResponse
 import magic
 import re
 import uuid
+from documents.utils import run_subprocess
+from gotenberg_client.options import Measurement, PdfAFormat
 
 
 class MailDocumentParser(Parent):
@@ -28,20 +31,20 @@ class MailDocumentParser(Parent):
 
     Features:
 
-        If consumption scope isn't EVERYTHING (i.e. parse mail and attachments separately) 
+        If consumption scope isn't EVERYTHING (i.e. parse mail and attachments separately)
         include attachments in the archived document where possible. If an attachment can't
         be converted to pdf, include a corresponding note in the archived version.
 
-        Place a header in front of the pdf containing the text version of the e-mail 
+        Place a header in front of the pdf containing the text version of the e-mail
         as well as in front of the html-version.
 
-        Only include either the text or html version of the e-mail in the archived document. 
+        Only include either the text or html version of the e-mail in the archived document.
         The PDF-Layout values for Paperless-ngx PdfLayout.TEXT_HTML and PdfLayout.HTML_TEXT
-        are therefore interpreted as "if available, use text, else use html version" resp. 
+        are therefore interpreted as "if available, use text, else use html version" resp.
         "if available, use html, else use text version".
-        
+
         Preserve original html e-mail content as far as possible.
-    
+
     This parser is based on the default e-mail parser of Paperless-ngx, from which it reuses
     the following functions:
 
@@ -49,10 +52,10 @@ class MailDocumentParser(Parent):
         - Determination of PDF/A version (_settings_to_gotenberg_pdfa())
 
 
-    Technical note: 
-        documents.ConsumerPlugin.run only delivers MailRule if parser is instance 
+    Technical note:
+        documents.ConsumerPlugin.run only delivers MailRule if parser is instance
         of paperless_mail.parsers.MailDocumentParser
-        
+
         Therefore this parser's super class needs to be paperless_mail.parsers.MailDocumentParser
         in order to get the mailrule in action.
     """
@@ -70,7 +73,9 @@ class MailDocumentParser(Parent):
         if mailrule_id:
             rule: MailRule = MailRule.objects.get(pk=mailrule_id)
             pdf_layout: MailRule.PdfLayout = MailRule.PdfLayout(rule.pdf_layout)
-            consumption_scope: MailRule.ConsumptionScope = MailRule.ConsumptionScope(rule.consumption_scope)
+            consumption_scope: MailRule.ConsumptionScope = MailRule.ConsumptionScope(
+                rule.consumption_scope
+            )
         pdf_layout = pdf_layout or settings.EMAIL_PARSE_DEFAULT_LAYOUT
 
         def get_header(parsed: MailMessage) -> list[tuple[str, str]]:
@@ -378,16 +383,38 @@ class MailDocumentParser(Parent):
                 final_pdf = merge_pdfs([final_pdf, attachments_pdf])
 
         # Convert merged document to PDF/A if requested
+        # using ghostscript as there are problems converting some
+        # PDFs using gotenberg's pdfa routes.
         pdf_a_format = self._settings_to_gotenberg_pdfa()
         if pdf_a_format is not None:
-            response = (
-                GotenbergClient(gotenberg_url)
-                .merge.merge()
-                .pdf_format(pdf_a_format)
-                .merge([final_pdf])
-                .run()
-            )
-        response.to_file(final_pdf)
+            match pdf_a_format:
+                case PdfAFormat.A2b:
+                    pdfa_number = 2
+                case PdfAFormat.A3b:
+                    pdfa_number = 3
+            if pdfa_number:
+                final_pdfa_version = Path(self.tempdir) / "final_pdfa.pdf"
+                cmd = [
+                    settings.GS_BINARY,
+                    "-q",
+                    f"-dPDFA={pdfa_number}",
+                    "-dBATCH",
+                    "-dNOPAUSE",
+                   f"-sColorConversionStrategy={settings.OCR_COLOR_CONVERSION_STRATEGY}",
+                    "-sDEVICE=pdfwrite",
+                    "-o",
+                    final_pdfa_version,
+                    final_pdf,
+                ]
+                final_pdf = final_pdfa_version
+                try:
+                    run_subprocess(cmd)
+                except subprocess.CalledProcessError as exception:
+                    raise ParseError(f"PDF/A generation failed: {cmd}") from exception
+            else:
+                raise ParseError(
+                    f"Error creating PDF/A. Ghostscript does not support PDF/A version {pdf_a_format}",
+                )
 
         self.archive_path: str = str(final_pdf)
 
