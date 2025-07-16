@@ -70,13 +70,15 @@ class MailDocumentParser(Parent):
         tika_url = settings.TIKA_ENDPOINT
         gotenberg_url = settings.TIKA_GOTENBERG_ENDPOINT
 
+        pdf_layout: MailRule.PdfLayout|None = settings.EMAIL_PARSE_DEFAULT_LAYOUT
+        consumption_scope: MailRule.ConsumptionScope|None = None
+
         if mailrule_id:
             rule: MailRule = MailRule.objects.get(pk=mailrule_id)
-            pdf_layout: MailRule.PdfLayout = MailRule.PdfLayout(rule.pdf_layout)
-            consumption_scope: MailRule.ConsumptionScope = MailRule.ConsumptionScope(
+            pdf_layout = MailRule.PdfLayout(rule.pdf_layout) or pdf_layout
+            consumption_scope = MailRule.ConsumptionScope(
                 rule.consumption_scope
             )
-        pdf_layout = pdf_layout or settings.EMAIL_PARSE_DEFAULT_LAYOUT
 
         def get_header(parsed: MailMessage) -> list[tuple[str, str]]:
             header: list[tuple[str, str]] = []
