@@ -60,6 +60,9 @@ class MailDocumentParser(Parent):
         in order to get the mailrule in action.
     """
 
+    # Timeout for gotenberg in seconds. Default of 30s sometimes leads to error "503 Service Unavailable" when parsing mails
+    GOTENBERG_TIMEOUT = 600.0
+
     def parse(
         self,
         document_path: Path,
@@ -70,15 +73,16 @@ class MailDocumentParser(Parent):
         tika_url = settings.TIKA_ENDPOINT
         gotenberg_url = settings.TIKA_GOTENBERG_ENDPOINT
 
-        pdf_layout: MailRule.PdfLayout|None = settings.EMAIL_PARSE_DEFAULT_LAYOUT
+        pdf_layout: MailRule.PdfLayout|None = None
         consumption_scope: MailRule.ConsumptionScope|None = None
 
         if mailrule_id:
             rule: MailRule = MailRule.objects.get(pk=mailrule_id)
-            pdf_layout = MailRule.PdfLayout(rule.pdf_layout) or pdf_layout
+            pdf_layout = MailRule.PdfLayout(rule.pdf_layout)
             consumption_scope = MailRule.ConsumptionScope(
                 rule.consumption_scope
             )
+        pdf_layout = pdf_layout or settings.EMAIL_PARSE_DEFAULT_LAYOUT
 
         def get_header(parsed: MailMessage) -> list[tuple[str, str]]:
             header: list[tuple[str, str]] = []
@@ -94,6 +98,9 @@ class MailDocumentParser(Parent):
             )
             header.append(("Subject", parsed.subject))
             header.append(("To", ",".join([x.full for x in parsed.to_values])))
+            
+            if parsed.cc_values:
+                header.append(("CC", ",".join([x.full for x in parsed.cc_values])))
 
             if is_naive(parsed.date):
                 date = make_aware(parsed.date)
@@ -138,6 +145,7 @@ class MailDocumentParser(Parent):
                 ret: str | None = client.tika.as_text.from_buffer(
                     message_payload
                 ).content
+
                 # first line is subject; strip from content
                 ret = ret.strip().split("\n", 1)[1] if ret else ""
                 return strip_duplicate_newlines(ret)
@@ -166,7 +174,7 @@ class MailDocumentParser(Parent):
                     f"{create_html_header(get_header(parsed))}{txt_content_as_html}"
                 )
 
-                with GotenbergClient(gotenberg_url) as client:
+                with GotenbergClient(gotenberg_url, timeout=self.GOTENBERG_TIMEOUT) as client:
                     with client.chromium.html_to_pdf() as route:
                         # Set page size, margins
                         route.margins(
@@ -212,7 +220,7 @@ class MailDocumentParser(Parent):
                     create_html_header(get_header(parsed)) + content
                 )
 
-                with GotenbergClient(gotenberg_url) as client:
+                with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
                     with client.chromium.html_to_pdf() as route:
                         # Set page size, margins
                         route.margins(
@@ -261,7 +269,7 @@ class MailDocumentParser(Parent):
                 else:
                     path_pdf: Path = self.tempdir / f"{filename}.pdf"
                     try:
-                        with GotenbergClient(gotenberg_url) as client:
+                        with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
                             with client.libre_office.to_pdf() as route:
                                 response: SingleFileResponse = route.convert(path).run()
                                 response.to_file(path_pdf)
@@ -276,7 +284,7 @@ class MailDocumentParser(Parent):
             tmp_filename = str(uuid.uuid4()) + ".pdf"
             merged_pdf: Path = self.tempdir / tmp_filename
 
-            with GotenbergClient(gotenberg_url) as client:
+            with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
                 response: SingleFileResponse = client.merge.merge().merge(pdfs).run()
                 response.to_file(merged_pdf)
             return merged_pdf
@@ -286,7 +294,7 @@ class MailDocumentParser(Parent):
             pdf_path: Path = Path(self.tempdir) / f"{dummy_filename}.pdf"
 
             with (
-                GotenbergClient(gotenberg_url) as client,
+                GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client,
                 client.chromium.html_to_pdf() as route,
             ):
                 try:
