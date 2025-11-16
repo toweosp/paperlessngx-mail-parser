@@ -202,14 +202,15 @@ class MailDocumentParser(Parent):
                 for a in [
                     x for x in parsed.attachments if x.content_disposition == "inline"
                 ]:
-                    inlineAttachment: Path = Path(self.tempdir) / a.filename
+                    tmp_filename: str = a.filename if a.filename else a.content_id
+                    inlineAttachment: Path = Path(self.tempdir) / tmp_filename
                     inlineAttachment.write_bytes(a.payload)
                     inline_attachments.append(inlineAttachment)
 
                     # replace content id references with filename of inline attachment
                     if a.content_id:
                         content = content.replace(
-                            f"cid:{a.content_id}", f"{a.filename}"
+                            f"cid:{a.content_id}", f"{tmp_filename}"
                         )
 
                 # remove page css styles in order to combine mail header and content
