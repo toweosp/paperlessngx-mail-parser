@@ -142,12 +142,16 @@ class MailDocumentParser(Parent):
 
         def get_mail_and_attachments_content(message_payload) -> str:
             with TikaClient(tika_url=tika_url) as client:
-                ret: str | None = client.tika.as_text.from_buffer(
+                content: str | None = client.tika.as_text.from_buffer(
                     message_payload
                 ).content
 
+                ret = ''
                 # first line is subject; strip from content
-                ret = ret.strip().split("\n", 1)[1] if ret else ""
+                if content:
+                    ret_splitted = ret.strip().splitlines()
+                    if len(ret_splitted) > 1:
+                        ret = '\n'.join(ret_splitted[1:])
                 return strip_duplicate_newlines(ret)
 
         def create_txt_header(header: list[tuple[str, str]]) -> str:
@@ -202,15 +206,14 @@ class MailDocumentParser(Parent):
                 for a in [
                     x for x in parsed.attachments if x.content_disposition == "inline"
                 ]:
-                    tmp_filename: str = a.filename if a.filename else a.content_id
-                    inlineAttachment: Path = Path(self.tempdir) / tmp_filename
-                    inlineAttachment.write_bytes(a.payload)
-                    inline_attachments.append(inlineAttachment)
-
-                    # replace content id references with filename of inline attachment
                     if a.content_id:
+                        inlineAttachment: Path = Path(self.tempdir) / a.content_id
+                        inlineAttachment.write_bytes(a.payload)
+                        inline_attachments.append(inlineAttachment)
+
+                        # replace content id references with (temporary) filename of inline attachment
                         content = content.replace(
-                            f"cid:{a.content_id}", f"{tmp_filename}"
+                            f"cid:{a.content_id}", f"{a.content_id}"
                         )
 
                 # remove page css styles in order to combine mail header and content
@@ -278,7 +281,7 @@ class MailDocumentParser(Parent):
                     except:
                         # if we couldn't convert the attachment to pdf
                         # create a one-side pdf with a corresponding note
-                        pdfs.append(create_dummy_pdf(attachment.filename))
+                        pdfs.append(create_dummy_pdf(f"The attachment (filename: <b>{attachment.filename if attachment.filename else 'unknown'}</b> content-type: <b>{attachment.content_type}</b>) could not be converted to PDF."))
             return pdfs
 
         def merge_pdfs(pdfs) -> Path:
@@ -290,7 +293,7 @@ class MailDocumentParser(Parent):
                 response.to_file(merged_pdf)
             return merged_pdf
 
-        def create_dummy_pdf(filename: str | None = None) -> Path:
+        def create_dummy_pdf(message: str) -> Path:
             dummy_filename = str(uuid.uuid4())
             pdf_path: Path = Path(self.tempdir) / f"{dummy_filename}.pdf"
 
@@ -313,14 +316,7 @@ class MailDocumentParser(Parent):
                         Path(self.tempdir) / f"{dummy_filename}.html"
                     )
 
-                    if filename:
-                        index_file_path.write_text(
-                            f"The attachment <b>{filename}</b> could not be converted to PDF."
-                        )
-                    else:
-                        index_file_path.write_text(
-                            f"The attachments could not be converted to PDF."
-                        )
+                    index_file_path.write_text(message)
 
                     response: SingleFileResponse = route.index(index_file_path).run()
                     pdf_path.write_bytes(response.content)
@@ -389,8 +385,8 @@ class MailDocumentParser(Parent):
                 attachments_pdf: Path
                 try:
                     attachments_pdf = merge_pdfs(pdfs)
-                except:
-                    attachments_pdf = create_dummy_pdf()
+                except Exception as e:
+                    attachments_pdf = create_dummy_pdf(f"The attachments could not be converted to PDF: {e.__str__()}")
                 final_pdf = merge_pdfs([final_pdf, attachments_pdf])
 
         # Convert merged document to PDF/A if requested
