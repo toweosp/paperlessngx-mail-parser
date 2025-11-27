@@ -147,8 +147,8 @@ class MailDocumentParser(Parent):
                 ).content
 
                 ret = ''
-                # first line is subject; strip from content
-                if content:
+                # if subject of email is present it will be the first line in the content
+                if parsed.subject and content:
                     ret_splitted = content.strip().splitlines()
                     if len(ret_splitted) > 1:
                         ret = '\n'.join(ret_splitted[1:])
