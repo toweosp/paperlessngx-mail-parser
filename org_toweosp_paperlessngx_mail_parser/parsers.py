@@ -149,7 +149,7 @@ class MailDocumentParser(Parent):
                 ret = ''
                 # first line is subject; strip from content
                 if content:
-                    ret_splitted = ret.strip().splitlines()
+                    ret_splitted = content.strip().splitlines()
                     if len(ret_splitted) > 1:
                         ret = '\n'.join(ret_splitted[1:])
                 return strip_duplicate_newlines(ret)
