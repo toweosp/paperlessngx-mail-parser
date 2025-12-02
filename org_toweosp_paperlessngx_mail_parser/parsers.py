@@ -140,20 +140,6 @@ class MailDocumentParser(Parent):
                     ret = response.content if response.content else ""
             return strip_duplicate_newlines(ret)
 
-        def get_mail_and_attachments_content(message_payload) -> str:
-            with TikaClient(tika_url=tika_url) as client:
-                content: str | None = client.tika.as_text.from_buffer(
-                    message_payload
-                ).content
-
-                ret = ''
-                # if subject of email is present it will be the first line in the content
-                if parsed.subject and content:
-                    ret_splitted = content.strip().splitlines()
-                    if len(ret_splitted) > 1:
-                        ret = '\n'.join(ret_splitted[1:])
-                return strip_duplicate_newlines(ret)
-
         def create_txt_header(header: list[tuple[str, str]]) -> str:
             mail_header: str = ""
             for label, value in header:
