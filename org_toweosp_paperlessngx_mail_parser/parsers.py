@@ -268,6 +268,13 @@ class MailDocumentParser(Parent):
                 # don't trust attachment's content type (octet-stream might be pdf)
                 mimetype = magic.from_buffer(attachment.payload, mime=True)
 
+                from paperless_tesseract.signals import get_parser as get_tesseract_parser, tesseract_consumer_declaration
+                if mimetype in tesseract_consumer_declaration(None)['mime_types']:                   
+                    rasterisedDocumentParser = get_tesseract_parser(self.logging_group) 
+                    rasterisedDocumentParser.parse(path,mimetype)
+                    if rasterisedDocumentParser.text:
+                        self.text += f'\n\n= Content attachment: {filename} =\n' + rasterisedDocumentParser.text
+
                 if mimetype == "application/pdf":
                     pdfs.append(path)
                 else:
@@ -337,15 +344,9 @@ class MailDocumentParser(Parent):
         else:
             self.date = parsed.date
 
-        # set document content
-        # depending on consumption scope include content of attachments
         content = create_txt_header(get_header(parsed))
-        if consumption_scope != MailRule.ConsumptionScope.EVERYTHING:
-            mail_content = get_mail_and_attachments_content(message_payload)
-        else:
-            mail_content = get_mail_only_content(parsed)
-        content += mail_content if mail_content else ""
-        self.text = content
+        mail_content = get_mail_only_content(parsed)
+        self.text = content + mail_content if mail_content else ""
 
         # finally combine different pdfs to archived file
         pdfs_to_merge: list[Path] = []
