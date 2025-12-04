@@ -268,6 +268,7 @@ class MailDocumentParser(Parent):
                 # don't trust attachment's content type (octet-stream might be pdf)
                 mimetype = magic.from_buffer(attachment.payload, mime=True)
 
+
                 from paperless_tesseract.signals import get_parser as get_tesseract_parser, tesseract_consumer_declaration
                 if mimetype in tesseract_consumer_declaration(None)['mime_types']:                   
                     rasterisedDocumentParser = get_tesseract_parser(self.logging_group) 
@@ -284,7 +285,13 @@ class MailDocumentParser(Parent):
                             with client.libre_office.to_pdf() as route:
                                 response: SingleFileResponse = route.convert(path).run()
                                 response.to_file(path_pdf)
-                                pdfs.append(path_pdf)
+                                                
+                        rasterisedDocumentParser = get_tesseract_parser(self.logging_group) 
+                        rasterisedDocumentParser.parse(path_pdf,mimetype)
+                        if rasterisedDocumentParser.text:
+                            self.text += f'\n\n= Content attachment: {filename} =\n' + rasterisedDocumentParser.text
+
+                        pdfs.append(path_pdf)
                     except:
                         # if we couldn't convert the attachment to pdf
                         # create a one-side pdf with a corresponding note
