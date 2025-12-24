@@ -23,7 +23,7 @@ import re
 import uuid
 from documents.utils import run_subprocess
 from gotenberg_client.options import Measurement, PdfAFormat
-
+from paperless_tesseract.signals import get_parser as get_tesseract_parser, tesseract_consumer_declaration
 
 class MailDocumentParser(Parent):
     """
@@ -254,12 +254,14 @@ class MailDocumentParser(Parent):
                 # don't trust attachment's content type (octet-stream might be pdf)
                 mimetype = magic.from_buffer(attachment.payload, mime=True)
 
-                from paperless_tesseract.signals import get_parser as get_tesseract_parser, tesseract_consumer_declaration
+                original_attachment_parsed = False                
+                rasterisedDocumentParser = get_tesseract_parser(self.logging_group)                 
                 if mimetype in tesseract_consumer_declaration(None)['mime_types']:                   
                     rasterisedDocumentParser = get_tesseract_parser(self.logging_group) 
                     rasterisedDocumentParser.parse(path,mimetype)
                     if rasterisedDocumentParser.text:
                         self.text += f'\n\n= Content attachment: {filename} =\n' + rasterisedDocumentParser.text
+                        original_attachment_parsed = True
 
                 if mimetype == "application/pdf":
                     pdfs.append(path)
@@ -270,7 +272,12 @@ class MailDocumentParser(Parent):
                             with client.libre_office.to_pdf() as route:
                                 response: SingleFileResponse = route.convert(path).run()
                                 response.to_file(path_pdf)
-                                pdfs.append(path_pdf)
+                                pdfs.append(path_pdf)                                
+                        if not original_attachment_parsed:
+                            # assuming mime-type "application/pdf" is/remains in tesseract_consumer_declaration(None)['mime_types']
+                            rasterisedDocumentParser.parse(path_pdf,"application/pdf")
+                            if rasterisedDocumentParser.text:
+                                self.text += f'\n\n= Content attachment: {filename} =\n' + rasterisedDocumentParser.text                                
                     except:
                         # if we couldn't convert the attachment to pdf
                         # create a one-side pdf with a corresponding note
