@@ -131,8 +131,10 @@ class MailDocumentParser(Parent):
             return re.sub(r"(\n)+", r"\n", text)
 
         def get_mail_only_content(parsed: MailMessage) -> str:
-            ret: str = parsed.text
-            if not ret:
+            ret: str = ""
+            if parsed.text:
+                ret = parsed.text
+            elif parsed.html:
                 with TikaClient(tika_url=tika_url) as client:
                     response: TikaResponse = client.tika.as_text.from_buffer(
                         parsed.html, "text/html"
@@ -155,29 +157,29 @@ class MailDocumentParser(Parent):
         def create_text_mail_pdf(parsed: MailMessage) -> Path:
             text_mail_html: Path = self.tempdir / "text-mail.html"
             text_mail_pdf: Path = self.tempdir / "text-mail.pdf"
-            if parsed.text:
-                with TikaClient(tika_url=tika_url) as client:
-                    txt_content_as_html = (
-                        "<tt>" + parsed.text.replace("\n", "<br>") + "</tt>"
-                    )
-                text_mail_html.write_text(
-                    f"{create_html_header(get_header(parsed))}{txt_content_as_html}"
+
+            with TikaClient(tika_url=tika_url) as client:
+                txt_content_as_html = (
+                    "<tt>" + parsed.text.replace("\n", "<br>") if parsed.text else "" + "</tt>"
                 )
+            text_mail_html.write_text(
+                f"{create_html_header(get_header(parsed))}{txt_content_as_html}"
+            )
 
-                with GotenbergClient(gotenberg_url, timeout=self.GOTENBERG_TIMEOUT) as client:
-                    with client.chromium.html_to_pdf() as route:
-                        # Set page size, margins
-                        route.margins(
-                            PageMarginsType(
-                                top=Measurement(0.1, MeasurementUnitType.Inches),
-                                bottom=Measurement(0.1, MeasurementUnitType.Inches),
-                                left=Measurement(0.1, MeasurementUnitType.Inches),
-                                right=Measurement(0.1, MeasurementUnitType.Inches),
-                            ),
-                        ).size(A4).scale(1.0)
+            with GotenbergClient(gotenberg_url, timeout=self.GOTENBERG_TIMEOUT) as client:
+                with client.chromium.html_to_pdf() as route:
+                    # Set page size, margins
+                    route.margins(
+                        PageMarginsType(
+                            top=Measurement(0.1, MeasurementUnitType.Inches),
+                            bottom=Measurement(0.1, MeasurementUnitType.Inches),
+                            left=Measurement(0.1, MeasurementUnitType.Inches),
+                            right=Measurement(0.1, MeasurementUnitType.Inches),
+                        ),
+                    ).size(A4).scale(1.0)
 
-                        response: SingleFileResponse = route.index(text_mail_html).run()
-                        response.to_file(text_mail_pdf)
+                    response: SingleFileResponse = route.index(text_mail_html).run()
+                    response.to_file(text_mail_pdf)
             return text_mail_pdf
 
         def create_html_mail_pdf(parsed: MailMessage):
@@ -206,9 +208,9 @@ class MailDocumentParser(Parent):
                 # in one page
                 content = re.sub(r"\{page:.*?\}", "", content)
 
-                html_mail_html.write_text(
-                    create_html_header(get_header(parsed)) + content
-                )
+                html_mail_html.write_text(create_html_header(get_header(parsed)))
+                if content:
+                    html_mail_html.write_text(content)
 
                 with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
                     with client.chromium.html_to_pdf() as route:
