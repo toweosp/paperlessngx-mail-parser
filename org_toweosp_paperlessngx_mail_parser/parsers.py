@@ -208,9 +208,7 @@ class MailDocumentParser(Parent):
                 # in one page
                 content = re.sub(r"\{page:.*?\}", "", content)
 
-                html_mail_html.write_text(create_html_header(get_header(parsed)))
-                if content:
-                    html_mail_html.write_text(content)
+                html_mail_html.write_text(create_html_header(get_header(parsed)) + content if content else "")
 
                 with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
                     with client.chromium.html_to_pdf() as route:
