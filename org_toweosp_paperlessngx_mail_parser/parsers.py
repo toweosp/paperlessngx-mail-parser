@@ -23,7 +23,11 @@ import re
 import uuid
 from documents.utils import run_subprocess
 from gotenberg_client.options import Measurement, PdfAFormat
-from paperless_tesseract.signals import get_parser as get_tesseract_parser, tesseract_consumer_declaration
+from paperless_tesseract.signals import (
+    get_parser as get_tesseract_parser,
+    tesseract_consumer_declaration,
+)
+
 
 class MailDocumentParser(Parent):
     """
@@ -73,15 +77,13 @@ class MailDocumentParser(Parent):
         tika_url = settings.TIKA_ENDPOINT
         gotenberg_url = settings.TIKA_GOTENBERG_ENDPOINT
 
-        pdf_layout: MailRule.PdfLayout|None = None
-        consumption_scope: MailRule.ConsumptionScope|None = None
+        pdf_layout: MailRule.PdfLayout | None = None
+        consumption_scope: MailRule.ConsumptionScope | None = None
 
         if mailrule_id:
             rule: MailRule = MailRule.objects.get(pk=mailrule_id)
             pdf_layout = MailRule.PdfLayout(rule.pdf_layout)
-            consumption_scope = MailRule.ConsumptionScope(
-                rule.consumption_scope
-            )
+            consumption_scope = MailRule.ConsumptionScope(rule.consumption_scope)
         pdf_layout = pdf_layout or settings.EMAIL_PARSE_DEFAULT_LAYOUT
 
         def get_header(parsed: MailMessage) -> list[tuple[str, str]]:
@@ -98,7 +100,7 @@ class MailDocumentParser(Parent):
             )
             header.append(("Subject", parsed.subject))
             header.append(("To", ",".join([x.full for x in parsed.to_values])))
-            
+
             if parsed.cc_values:
                 header.append(("CC", ",".join([x.full for x in parsed.cc_values])))
 
@@ -160,13 +162,17 @@ class MailDocumentParser(Parent):
 
             with TikaClient(tika_url=tika_url) as client:
                 txt_content_as_html = (
-                    "<tt>" + parsed.text.replace("\n", "<br>") if parsed.text else "" + "</tt>"
+                    "<tt>" + parsed.text.replace("\n", "<br>")
+                    if parsed.text
+                    else "" + "</tt>"
                 )
             text_mail_html.write_text(
                 f"{create_html_header(get_header(parsed))}{txt_content_as_html}"
             )
 
-            with GotenbergClient(gotenberg_url, timeout=self.GOTENBERG_TIMEOUT) as client:
+            with GotenbergClient(
+                gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+            ) as client:
                 with client.chromium.html_to_pdf() as route:
                     # Set page size, margins
                     route.margins(
@@ -208,9 +214,13 @@ class MailDocumentParser(Parent):
                 # in one page
                 content = re.sub(r"\{page:.*?\}", "", content)
 
-                html_mail_html.write_text(create_html_header(get_header(parsed)) + content if content else "")
+                html_mail_html.write_text(
+                    create_html_header(get_header(parsed)) + content if content else ""
+                )
 
-                with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
+                with GotenbergClient(
+                    gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+                ) as client:
                     with client.chromium.html_to_pdf() as route:
                         # Set page size, margins
                         route.margins(
@@ -235,11 +245,14 @@ class MailDocumentParser(Parent):
         def create_attachments_pdfs(parsed: MailMessage) -> list[Path]:
             pdfs: list[Path] = []
 
-            # Only use attachments which are not inline and not signatures
+            # Only include attachments which are not inline - expect inline attachments without content_id - and not signatures
             real_attachments: list[MailAttachment] = [
                 att
                 for att in parsed.attachments
-                if att.content_disposition == "attachment"
+                if (
+                    att.content_disposition == "attachment"
+                    or (att.content_disposition == "inline" and not att.content_id)
+                )
                 and att.content_type != "application/x-pkcs7-signature"
             ]
 
@@ -254,13 +267,16 @@ class MailDocumentParser(Parent):
                 # don't trust attachment's content type (octet-stream might be pdf)
                 mimetype = magic.from_buffer(attachment.payload, mime=True)
 
-                original_attachment_parsed = False                
-                rasterisedDocumentParser = get_tesseract_parser(self.logging_group)                 
-                if mimetype in tesseract_consumer_declaration(None)['mime_types']:                   
-                    rasterisedDocumentParser = get_tesseract_parser(self.logging_group) 
-                    rasterisedDocumentParser.parse(path,mimetype)
+                original_attachment_parsed = False
+                rasterisedDocumentParser = get_tesseract_parser(self.logging_group)
+                if mimetype in tesseract_consumer_declaration(None)["mime_types"]:
+                    rasterisedDocumentParser = get_tesseract_parser(self.logging_group)
+                    rasterisedDocumentParser.parse(path, mimetype)
                     if rasterisedDocumentParser.text:
-                        self.text += f'\n\n= Content attachment: {filename} =\n' + rasterisedDocumentParser.text
+                        self.text += (
+                            f"\n\n= Content attachment: {filename} =\n"
+                            + rasterisedDocumentParser.text
+                        )
                         original_attachment_parsed = True
 
                 if mimetype == "application/pdf":
@@ -268,27 +284,38 @@ class MailDocumentParser(Parent):
                 else:
                     path_pdf: Path = self.tempdir / f"{filename}.pdf"
                     try:
-                        with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
+                        with GotenbergClient(
+                            gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+                        ) as client:
                             with client.libre_office.to_pdf() as route:
                                 response: SingleFileResponse = route.convert(path).run()
                                 response.to_file(path_pdf)
-                                pdfs.append(path_pdf)                                
+                                pdfs.append(path_pdf)
                         if not original_attachment_parsed:
                             # assuming mime-type "application/pdf" is/remains in tesseract_consumer_declaration(None)['mime_types']
-                            rasterisedDocumentParser.parse(path_pdf,"application/pdf")
+                            rasterisedDocumentParser.parse(path_pdf, "application/pdf")
                             if rasterisedDocumentParser.text:
-                                self.text += f'\n\n= Content attachment: {filename} =\n' + rasterisedDocumentParser.text                                
+                                self.text += (
+                                    f"\n\n= Content attachment: {filename} =\n"
+                                    + rasterisedDocumentParser.text
+                                )
                     except:
                         # if we couldn't convert the attachment to pdf
                         # create a one-side pdf with a corresponding note
-                        pdfs.append(create_dummy_pdf(f"The attachment (filename: <b>{attachment.filename if attachment.filename else 'unknown'}</b> content-type: <b>{attachment.content_type}</b>) could not be converted to PDF."))
+                        pdfs.append(
+                            create_dummy_pdf(
+                                f"The attachment (filename: <b>{attachment.filename if attachment.filename else 'unknown'}</b> content-type: <b>{attachment.content_type}</b>) could not be converted to PDF."
+                            )
+                        )
             return pdfs
 
         def merge_pdfs(pdfs) -> Path:
             tmp_filename = str(uuid.uuid4()) + ".pdf"
             merged_pdf: Path = self.tempdir / tmp_filename
 
-            with GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client:
+            with GotenbergClient(
+                gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+            ) as client:
                 response: SingleFileResponse = client.merge.merge().merge(pdfs).run()
                 response.to_file(merged_pdf)
             return merged_pdf
@@ -298,7 +325,9 @@ class MailDocumentParser(Parent):
             pdf_path: Path = Path(self.tempdir) / f"{dummy_filename}.pdf"
 
             with (
-                GotenbergClient(gotenberg_url,timeout=self.GOTENBERG_TIMEOUT) as client,
+                GotenbergClient(
+                    gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+                ) as client,
                 client.chromium.html_to_pdf() as route,
             ):
                 try:
@@ -380,7 +409,9 @@ class MailDocumentParser(Parent):
                 try:
                     attachments_pdf = merge_pdfs(pdfs)
                 except Exception as e:
-                    attachments_pdf = create_dummy_pdf(f"The attachments could not be converted to PDF: {e.__str__()}")
+                    attachments_pdf = create_dummy_pdf(
+                        f"The attachments could not be converted to PDF: {e.__str__()}"
+                    )
                 final_pdf = merge_pdfs([final_pdf, attachments_pdf])
 
         # Convert merged document to PDF/A if requested
@@ -401,7 +432,7 @@ class MailDocumentParser(Parent):
                     f"-dPDFA={pdfa_number}",
                     "-dBATCH",
                     "-dNOPAUSE",
-                   f"-sColorConversionStrategy={settings.OCR_COLOR_CONVERSION_STRATEGY}",
+                    f"-sColorConversionStrategy={settings.OCR_COLOR_CONVERSION_STRATEGY}",
                     "-sDEVICE=pdfwrite",
                     "-o",
                     final_pdfa_version,
