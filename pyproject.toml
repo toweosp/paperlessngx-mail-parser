@@ -1,0 +1,26 @@
+[build-system]
+requires = ["uv_build >= 0.10.0, <0.11.0"]
+build-backend = "uv_build"
+#namespace = true
+
+[project]
+name = "paperlessngx_mail_parser"
+version = "v2.0.0"
+authors = [
+  { name="toweosp", email="dev@toweosp.org" },
+]
+description = "Alternative e-mail parser for Paperless-ngx"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "GPL-3.0-only"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/pypa/sampleproject"
+Issues = "https://github.com/pypa/sampleproject/issues"
+

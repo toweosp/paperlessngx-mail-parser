@@ -21,29 +21,19 @@ https://docs.paperless-ngx.com/configuration/#PAPERLESS_GS_BINARY
 https://docs.paperless-ngx.com/configuration/#PAPERLESS_OCR_COLOR_CONVERSION_STRATEGY
 
 ## Installation
-These installation instructions are for docker based installations. For bare metal installations you have to do analogous steps manually, i.e. copy/link the source folder to your installation folder.  
 
-1. Download current release or clone repository to a _folder_ of your choice.
+1. Install using PyPI
 
-2. Bind folder `org_toweosp_paperlessngx_mail_parser` to `/usr/src/paperless/src/org_toweosp_paperlessngx_mail_parser` for your Paperless-ngx webserver container. For example when using docker compose:
+    `pip install paperlessngx-mail-parser`
+
+    For docker based installations use custom container initialization as described here: https://docs.paperless-ngx.com/advanced_usage/#custom-container-initialization
+
+    Place a script with the following content in the directory for your container initialization scripts and make it executable:
 
     ```
-    services:
-    [...]    
-        webserver:
-        [...]
-            volumes:
-            - <folder>/org_toweosp_paperlessngx_mail_parser:/usr/src/paperless/src/org_toweosp_paperlessngx_mail_parser
+    #!/bin/bash
+    pip install paperlessngx-mail-parser
     ```
-3. Add this parser to the `PAPERLESS_APPS` environment variable, e.g. 
-   `PAPERLESS_APPS="org_toweosp_paperlessngx_mail_parser.apps.MailparserConfig"`
 
-> **Note on using the PAPERLESS_APPS environment variable**
->
->This is a comma separated list of apps you would like to add to Paperless-ngx. Pay attention to not include any spaces in between when adding more than one app. So use e.g.
->
->`PAPERLESS_APPS="org_toweosp_paperlessngx_mail_parser.apps.MailparserConfig,paperless_my.apps.SpecialConfig"`
->
->instead of
->
->`PAPERLESS_APPS="org_toweosp_paperlessngx_mail_parser.apps.MailparserConfig, paperless_my.apps.SpecialConfig"`
+2. Add this parser to the `PAPERLESS_APPS` environment variable, e.g. in your `paperless.conf`:
+   `PAPERLESS_APPS="paperlessngx-mail-parser.apps.MailparserConfig"`

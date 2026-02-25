@@ -1,5 +1,5 @@
 def get_parser(*args, **kwargs):
-    from org_toweosp_paperlessngx_mail_parser.parsers import MailDocumentParser
+    from paperlessngx_mail_parser.parsers import MailDocumentParser
 
     return MailDocumentParser(*args, **kwargs)
 
