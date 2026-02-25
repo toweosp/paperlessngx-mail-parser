@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "paperlessngx_mail_parser"
-version = "v2.0.0"
+version = "v2.0.1"
 authors = [
   { name="toweosp", email="dev@toweosp.org" },
 ]
