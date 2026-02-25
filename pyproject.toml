@@ -1,7 +1,6 @@
 [build-system]
 requires = ["uv_build >= 0.10.0, <0.11.0"]
 build-backend = "uv_build"
-#namespace = true
 
 [project]
 name = "paperlessngx_mail_parser"
@@ -21,6 +20,6 @@ license = "GPL-3.0-only"
 license-files = ["LICEN[CS]E*"]
 
 [project.urls]
-Homepage = "https://github.com/pypa/sampleproject"
-Issues = "https://github.com/pypa/sampleproject/issues"
+Homepage = "https://github.com/toweosp/paperlessngx-mail-parser"
+Issues = "https://github.com/toweosp/paperlessngx-mail-parser/issues"
 
