@@ -86,6 +86,9 @@ class MailDocumentParser(Parent):
             consumption_scope = MailRule.ConsumptionScope(rule.consumption_scope)
         pdf_layout = pdf_layout or settings.EMAIL_PARSE_DEFAULT_LAYOUT
 
+        def clean_filename(filename : str) -> str:
+            return filename.replace('/','_')
+
         def get_header(parsed: MailMessage) -> list[tuple[str, str]]:
             header: list[tuple[str, str]] = []
             header.append(
@@ -123,7 +126,7 @@ class MailDocumentParser(Parent):
                 attachments: list[str] = []
                 for a in real_attachments:
                     attachments.append(
-                        f"{a.filename} ({naturalsize(a.size, binary=True, format='%.2f')})"
+                        f"{clean_filename(a.filename)} ({naturalsize(a.size, binary=True, format='%.2f')})"
                     )
                 header.append(("Attachments", ", ".join(attachments)))
 
@@ -258,7 +261,7 @@ class MailDocumentParser(Parent):
 
             for attachment in real_attachments:
                 filename = (
-                    attachment.filename if attachment.filename else str(uuid.uuid4())
+                    clean_filename(attachment.filename) if attachment.filename else str(uuid.uuid4())
                 )
 
                 path: Path = self.tempdir / f"{filename}"
