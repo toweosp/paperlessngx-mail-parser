@@ -1,37 +1,34 @@
-import subprocess
+import re
+from subprocess import CalledProcessError
+from uuid import uuid4
+from pathlib import Path
+from magic import from_buffer
+from django.template import Context, Template
 from django.conf import settings
-from django.template.loader import render_to_string
-from django.utils.safestring import SafeText
-from django.utils.timezone import is_naive
-from django.utils.timezone import make_aware
-from documents.parsers import make_thumbnail_from_pdf
+from django.utils.timezone import is_naive, make_aware
 from documents.parsers import ParseError
+from documents.utils import run_subprocess
 from gotenberg_client import GotenbergClient, SingleFileResponse
 from gotenberg_client.constants import A4
-from gotenberg_client.options import Measurement
-from gotenberg_client.options import MeasurementUnitType
-from gotenberg_client.options import PageMarginsType
+from gotenberg_client.options import (
+    Measurement,
+    MeasurementUnitType,
+    PageMarginsType,
+    PdfAFormat,
+)
 from humanize import naturalsize
-from imap_tools.message import MailMessage, MailAttachment
+from imap_tools.message import MailAttachment, MailMessage
+from paperless.parsers.tesseract import _SUPPORTED_MIME_TYPES as tesseract_mime_types
+from paperless.parsers.tesseract import RasterisedDocumentParser
 from paperless_mail.models import MailRule
-from paperless_mail.parsers import MailDocumentParser as Parent
-from pathlib import Path
+from paperless.parsers.mail import MailDocumentParser as NativeMailDocumentParser
 from tika_client import TikaClient
 from tika_client.data_models import TikaResponse
-import magic
-import re
-import uuid
-from documents.utils import run_subprocess
-from gotenberg_client.options import Measurement, PdfAFormat
-from paperless_tesseract.signals import (
-    get_parser as get_tesseract_parser,
-    tesseract_consumer_declaration,
-)
 
 
-class MailDocumentParser(Parent):
+class MailDocumentParser(NativeMailDocumentParser):
     """
-    This parser can be used as an alternative to the default e-mail parser provided by Paperless-ngx.
+    This parser is based on the default e-mail parser of Paperless-ngx and can be used as an alternative to it.
 
     Features:
 
@@ -48,31 +45,31 @@ class MailDocumentParser(Parent):
         "if available, use html, else use text version".
 
         Preserve original html e-mail content as far as possible.
-
-    This parser is based on the default e-mail parser of Paperless-ngx, from which it reuses
-    the following functions:
-
-        - Metadata parsing (extract_metadata)
-        - Determination of PDF/A version (_settings_to_gotenberg_pdfa())
-
-
-    Technical note:
-        documents.ConsumerPlugin.run only delivers MailRule if parser is instance
-        of paperless_mail.parsers.MailDocumentParser
-
-        Therefore this parser's super class needs to be paperless_mail.parsers.MailDocumentParser
-        in order to get the mailrule in action.
     """
+
+    name = "Paperless-ngx mail parser"
+    version = "3.0.0"
+    author = "toweosp"
+    url = "https://github.com/toweosp/paperlessngx-mail-parser"
 
     # Timeout for gotenberg in seconds. Default of 30s sometimes leads to error "503 Service Unavailable" when parsing mails
     GOTENBERG_TIMEOUT = 600.0
+
+    @classmethod
+    def score(
+        cls,
+        mime_type: str,
+        filename: str,
+        path: "Path | None" = None,
+    ) -> int | None:
+        return 30
 
     def parse(
         self,
         document_path: Path,
         mime_type: str,
-        file_name=None,
-        mailrule_id: int | None = None,
+        *,
+        produce_archive: bool = True,
     ) -> None:
         tika_url = settings.TIKA_ENDPOINT
         gotenberg_url = settings.TIKA_GOTENBERG_ENDPOINT
@@ -80,14 +77,14 @@ class MailDocumentParser(Parent):
         pdf_layout: MailRule.PdfLayout | None = None
         consumption_scope: MailRule.ConsumptionScope | None = None
 
-        if mailrule_id:
-            rule: MailRule = MailRule.objects.get(pk=mailrule_id)
+        if self._mailrule_id:
+            rule: MailRule = MailRule.objects.get(pk=self._mailrule_id)
             pdf_layout = MailRule.PdfLayout(rule.pdf_layout)
             consumption_scope = MailRule.ConsumptionScope(rule.consumption_scope)
         pdf_layout = pdf_layout or settings.EMAIL_PARSE_DEFAULT_LAYOUT
 
-        def clean_filename(filename : str) -> str:
-            return filename.replace('/','_')
+        def clean_filename(filename: str) -> str:
+            return filename.replace("/", "_")
 
         def get_header(parsed: MailMessage) -> list[tuple[str, str]]:
             header: list[tuple[str, str]] = []
@@ -154,14 +151,63 @@ class MailDocumentParser(Parent):
             return mail_header
 
         def create_html_header(header: list[tuple[str, str]]) -> str:
-            html_header: SafeText = render_to_string(
-                "header_template.html", {"header": header}
-            )
+            template: Template = Template("""
+                {% autoescape on %}
+                <html>
+                <style>
+                    .toweosp {
+                        background-color: lightgray;
+                        border: 1px solid #888;
+                        border-collapse: separate;
+                        border-spacing: 2px;
+                        font-family: monospace;
+                    }
+
+                    .toweosp td {
+                        padding: 2px;
+                    }
+
+                    .toweosp td:first-child {
+                        color: gray;
+                        text-align: right;
+                    }
+
+                    .toweosp td:nth-child(2) {
+                        color: black;
+                    }
+
+                    .toweosp tr:nth-child(2) td:nth-child(2) {
+                        font-weight: bold;
+                    }
+                    
+                </style>
+
+                <head>
+                    <meta charset="UTF-8">
+                </head>
+
+                <body>
+
+                    <table class="toweosp" width="100%">
+                    {% for label, value in header %}
+                    <tr>
+                        <td>{{ label }}</td>
+                        <td>{{ value }}</td>
+                    </tr>
+                    {% endfor %}
+                    </table>
+                    <p></p>
+                </body>
+                </html>
+                {% endautoescape %}                
+            """)
+
+            html_header = template.render(Context({"header": header}))
             return html_header
 
         def create_text_mail_pdf(parsed: MailMessage) -> Path:
-            text_mail_html: Path = self.tempdir / "text-mail.html"
-            text_mail_pdf: Path = self.tempdir / "text-mail.pdf"
+            text_mail_html: Path = self._tempdir / "text-mail.html"
+            text_mail_pdf: Path = self._tempdir / "text-mail.pdf"
 
             with TikaClient(tika_url=tika_url) as client:
                 txt_content_as_html = (
@@ -192,8 +238,8 @@ class MailDocumentParser(Parent):
             return text_mail_pdf
 
         def create_html_mail_pdf(parsed: MailMessage):
-            html_mail_html: Path = self.tempdir / "html-mail.html"
-            html_mail_pdf: Path = self.tempdir / "html-mail.pdf"
+            html_mail_html: Path = self._tempdir / "html-mail.html"
+            html_mail_pdf: Path = self._tempdir / "html-mail.pdf"
 
             if parsed.html:
                 content = parsed.html
@@ -204,13 +250,14 @@ class MailDocumentParser(Parent):
                     x for x in parsed.attachments if x.content_disposition == "inline"
                 ]:
                     if a.content_id:
-                        inlineAttachment: Path = Path(self.tempdir) / a.content_id
+                        content_id_flatened = a.content_id.replace('/','__')
+                        inlineAttachment: Path = Path(self._tempdir) / content_id_flatened
                         inlineAttachment.write_bytes(a.payload)
                         inline_attachments.append(inlineAttachment)
 
                         # replace content id references with (temporary) filename of inline attachment
                         content = content.replace(
-                            f"cid:{a.content_id}", f"{a.content_id}"
+                            f"cid:{a.content_id}", f"{content_id_flatened}"
                         )
 
                 # remove page css styles in order to combine mail header and content
@@ -261,19 +308,20 @@ class MailDocumentParser(Parent):
 
             for attachment in real_attachments:
                 filename = (
-                    clean_filename(attachment.filename) if attachment.filename else str(uuid.uuid4())
+                    clean_filename(attachment.filename)
+                    if attachment.filename
+                    else str(uuid4())
                 )
 
-                path: Path = self.tempdir / f"{filename}"
+                path: Path = self._tempdir / f"{filename}"
                 path.write_bytes(attachment.payload)
 
                 # don't trust attachment's content type (octet-stream might be pdf)
-                mimetype = magic.from_buffer(attachment.payload, mime=True)
+                mimetype = from_buffer(attachment.payload, mime=True)
 
                 original_attachment_parsed = False
-                rasterisedDocumentParser = get_tesseract_parser(self.logging_group)
-                if mimetype in tesseract_consumer_declaration(None)["mime_types"]:
-                    rasterisedDocumentParser = get_tesseract_parser(self.logging_group)
+                rasterisedDocumentParser = RasterisedDocumentParser()
+                if mimetype in tesseract_mime_types:
                     rasterisedDocumentParser.parse(path, mimetype)
                     if rasterisedDocumentParser.text:
                         self.text += (
@@ -285,7 +333,7 @@ class MailDocumentParser(Parent):
                 if mimetype == "application/pdf":
                     pdfs.append(path)
                 else:
-                    path_pdf: Path = self.tempdir / f"{filename}.pdf"
+                    path_pdf: Path = self._tempdir / f"{filename}.pdf"
                     try:
                         with GotenbergClient(
                             gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
@@ -295,14 +343,14 @@ class MailDocumentParser(Parent):
                                 response.to_file(path_pdf)
                                 pdfs.append(path_pdf)
                         if not original_attachment_parsed:
-                            # assuming mime-type "application/pdf" is/remains in tesseract_consumer_declaration(None)['mime_types']
+                            # assuming mime-type "application/pdf" is/remains in paperless-ngx.parsers.tesseract._SUPPORTED_MIME_TYPES
                             rasterisedDocumentParser.parse(path_pdf, "application/pdf")
                             if rasterisedDocumentParser.text:
                                 self.text += (
                                     f"\n\n= Content attachment: {filename} =\n"
                                     + rasterisedDocumentParser.text
                                 )
-                    except:
+                    except Exception:
                         # if we couldn't convert the attachment to pdf
                         # create a one-side pdf with a corresponding note
                         pdfs.append(
@@ -313,8 +361,8 @@ class MailDocumentParser(Parent):
             return pdfs
 
         def merge_pdfs(pdfs) -> Path:
-            tmp_filename = str(uuid.uuid4()) + ".pdf"
-            merged_pdf: Path = self.tempdir / tmp_filename
+            tmp_filename = str(uuid4()) + ".pdf"
+            merged_pdf: Path = self._tempdir / tmp_filename
 
             with GotenbergClient(
                 gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
@@ -324,8 +372,8 @@ class MailDocumentParser(Parent):
             return merged_pdf
 
         def create_dummy_pdf(message: str) -> Path:
-            dummy_filename = str(uuid.uuid4())
-            pdf_path: Path = Path(self.tempdir) / f"{dummy_filename}.pdf"
+            dummy_filename = str(uuid4())
+            pdf_path: Path = Path(self._tempdir) / f"{dummy_filename}.pdf"
 
             with (
                 GotenbergClient(
@@ -345,7 +393,7 @@ class MailDocumentParser(Parent):
                     ).size(A4).scale(1.0)
 
                     index_file_path: Path = (
-                        Path(self.tempdir) / f"{dummy_filename}.html"
+                        Path(self._tempdir) / f"{dummy_filename}.html"
                     )
 
                     index_file_path.write_text(message)
@@ -375,32 +423,32 @@ class MailDocumentParser(Parent):
 
         # finally combine different pdfs to archived file
         pdfs_to_merge: list[Path] = []
-        text_pdf: Path
-        html_pdf: Path
+        text_pdf: Path | None = None
+        html_pdf: Path | None = None
 
-        if pdf_layout != MailRule.PdfLayout.HTML_ONLY:
+        if pdf_layout != MailRule.PdfLayout.HTML_ONLY and parsed.text:
             text_pdf = create_text_mail_pdf(parsed)
 
-        if pdf_layout != MailRule.PdfLayout.TEXT_ONLY:
+        if pdf_layout != MailRule.PdfLayout.TEXT_ONLY and parsed.html:
             html_pdf = create_html_mail_pdf(parsed)
 
         # we include either text or html mail content
         match pdf_layout:
             case MailRule.PdfLayout.TEXT_HTML:  # interpreted as: prefer TEXT over HTML
-                if text_pdf.exists():
+                if text_pdf:
                     pdfs_to_merge.append(text_pdf)
-                elif html_pdf.exists():
+                elif html_pdf:
                     pdfs_to_merge.append(html_pdf)
             case MailRule.PdfLayout.HTML_TEXT:  # interpreted as: prefer HTML over TEXT
-                if html_pdf.exists():
+                if html_pdf:
                     pdfs_to_merge.append(html_pdf)
-                elif text_pdf.exists():
+                elif text_pdf:
                     pdfs_to_merge.append(text_pdf)
             case MailRule.PdfLayout.HTML_ONLY:
-                if html_pdf.exists():
+                if html_pdf:
                     pdfs_to_merge.append(html_pdf)
             case MailRule.PdfLayout.TEXT_ONLY:
-                if text_pdf.exists():
+                if text_pdf:
                     pdfs_to_merge.append(text_pdf)
 
         final_pdf: Path = merge_pdfs(pdfs_to_merge)
@@ -428,7 +476,7 @@ class MailDocumentParser(Parent):
                 case PdfAFormat.A3b:
                     pdfa_number = 3
             if pdfa_number:
-                final_pdfa_version = Path(self.tempdir) / "final_pdfa.pdf"
+                final_pdfa_version = Path(self._tempdir) / "final_pdfa.pdf"
                 cmd = [
                     settings.GS_BINARY,
                     "-q",
@@ -444,30 +492,11 @@ class MailDocumentParser(Parent):
                 final_pdf = final_pdfa_version
                 try:
                     run_subprocess(cmd)
-                except subprocess.CalledProcessError as exception:
+                except CalledProcessError as exception:
                     raise ParseError(f"PDF/A generation failed: {cmd}") from exception
             else:
                 raise ParseError(
                     f"Error creating PDF/A. Ghostscript does not support PDF/A version {pdf_a_format}",
                 )
 
-        self.archive_path: str = str(final_pdf)
-
-    def get_settings(self) -> None:
-        """
-        This parser does not implement additional settings yet
-        """
-        return None
-
-    def get_thumbnail(
-        self,
-        document_path: Path,
-        mime_type: str,
-        file_name=None,
-    ) -> Path:
-
-        return make_thumbnail_from_pdf(
-            self.archive_path,
-            self.tempdir,
-            self.logging_group,
-        )
+        self._archive_path = final_pdf
