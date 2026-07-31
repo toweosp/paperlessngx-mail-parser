@@ -250,8 +250,10 @@ class MailDocumentParser(NativeMailDocumentParser):
                     x for x in parsed.attachments if x.content_disposition == "inline"
                 ]:
                     if a.content_id:
-                        content_id_flatened = a.content_id.replace('/','__')
-                        inlineAttachment: Path = Path(self._tempdir) / content_id_flatened
+                        content_id_flatened = a.content_id.replace("/", "__")
+                        inlineAttachment: Path = (
+                            Path(self._tempdir) / content_id_flatened
+                        )
                         inlineAttachment.write_bytes(a.payload)
                         inline_attachments.append(inlineAttachment)
 
@@ -324,7 +326,7 @@ class MailDocumentParser(NativeMailDocumentParser):
                 if mimetype in tesseract_mime_types:
                     rasterisedDocumentParser.parse(path, mimetype)
                     if rasterisedDocumentParser.text:
-                        self.text += (
+                        self._text = (self._text if self._text else "") + (
                             f"\n\n= Content attachment: {filename} =\n"
                             + rasterisedDocumentParser.text
                         )
@@ -346,7 +348,7 @@ class MailDocumentParser(NativeMailDocumentParser):
                             # assuming mime-type "application/pdf" is/remains in paperless-ngx.parsers.tesseract._SUPPORTED_MIME_TYPES
                             rasterisedDocumentParser.parse(path_pdf, "application/pdf")
                             if rasterisedDocumentParser.text:
-                                self.text += (
+                                self._text = (self._text if self._text else "") + (
                                     f"\n\n= Content attachment: {filename} =\n"
                                     + rasterisedDocumentParser.text
                                 )
@@ -419,7 +421,7 @@ class MailDocumentParser(NativeMailDocumentParser):
 
         content = create_txt_header(get_header(parsed))
         mail_content = get_mail_only_content(parsed)
-        self.text = content + mail_content if mail_content else ""
+        self._text = content + mail_content if mail_content else ""
 
         # finally combine different pdfs to archived file
         pdfs_to_merge: list[Path] = []
@@ -500,3 +502,7 @@ class MailDocumentParser(NativeMailDocumentParser):
                 )
 
         self._archive_path = final_pdf
+
+    @property
+    def can_produce_archive(self) -> bool:
+        return True

@@ -1,4 +1,4 @@
-# Alternative e-mail parser for Paperless-ngx v3.0.0 and above
+# Custom e-mail parser for Paperless-ngx
 
  This parser is based on the default e-mail parser of Paperless-ngx and can be used as an alternative to it.
 
@@ -12,11 +12,13 @@
 * Preserve original html e-mail content as far as possible. PDF/A version is created using ghostscript preserving links included in the e-mail.
 
 ## Prerequisites
-Ghostscript ist used for creating PDF/A version of archived file if requested, see 
+* Paperless-ngx version 3
 
-https://docs.paperless-ngx.com/configuration/#PAPERLESS_GS_BINARY
+* Ghostscript ist used for creating PDF/A version of archived file if requested, see 
 
-https://docs.paperless-ngx.com/configuration/#PAPERLESS_OCR_COLOR_CONVERSION_STRATEGY
+    https://docs.paperless-ngx.com/configuration/#PAPERLESS_GS_BINARY
+
+    https://docs.paperless-ngx.com/configuration/#PAPERLESS_OCR_COLOR_CONVERSION_STRATEGY
 
 ## Installation
 `pip install paperlessngx-mail-parser`
