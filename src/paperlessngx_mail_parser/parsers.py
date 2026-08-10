@@ -48,7 +48,7 @@ class MailDocumentParser(NativeMailDocumentParser):
     """
 
     name = "Paperless-ngx mail parser"
-    version = "3.0.0"
+    version = "3.0.2"
     author = "toweosp"
     url = "https://github.com/toweosp/paperlessngx-mail-parser"
 
@@ -211,9 +211,9 @@ class MailDocumentParser(NativeMailDocumentParser):
 
             with TikaClient(tika_url=tika_url) as client:
                 txt_content_as_html = (
-                    "<tt>" + parsed.text.replace("\n", "<br>")
+                    "<tt>" + (parsed.text.replace("\n", "<br>")
                     if parsed.text
-                    else "" + "</tt>"
+                    else "") + "</tt>"
                 )
             text_mail_html.write_text(
                 f"{create_html_header(get_header(parsed))}{txt_content_as_html}"
@@ -237,61 +237,60 @@ class MailDocumentParser(NativeMailDocumentParser):
                     response.to_file(text_mail_pdf)
             return text_mail_pdf
 
-        def create_html_mail_pdf(parsed: MailMessage):
+        def create_html_mail_pdf(parsed: MailMessage) -> Path:
             html_mail_html: Path = self._tempdir / "html-mail.html"
             html_mail_pdf: Path = self._tempdir / "html-mail.pdf"
+            
+            content = parsed.html
 
-            if parsed.html:
-                content = parsed.html
+            inline_attachments: list[Path] = []
+            # include inline attachments
+            for a in [
+                x for x in parsed.attachments if x.content_disposition == "inline"
+            ]:
+                if a.content_id:
+                    content_id_flatened = a.content_id.replace("/", "__")
+                    inlineAttachment: Path = (
+                        Path(self._tempdir) / content_id_flatened
+                    )
+                    inlineAttachment.write_bytes(a.payload)
+                    inline_attachments.append(inlineAttachment)
 
-                inline_attachments: list[Path] = []
-                # include inline attachments
-                for a in [
-                    x for x in parsed.attachments if x.content_disposition == "inline"
-                ]:
-                    if a.content_id:
-                        content_id_flatened = a.content_id.replace("/", "__")
-                        inlineAttachment: Path = (
-                            Path(self._tempdir) / content_id_flatened
-                        )
-                        inlineAttachment.write_bytes(a.payload)
-                        inline_attachments.append(inlineAttachment)
+                    # replace content id references with (temporary) filename of inline attachment
+                    content = content.replace(
+                        f"cid:{a.content_id}", f"{content_id_flatened}"
+                    )
 
-                        # replace content id references with (temporary) filename of inline attachment
-                        content = content.replace(
-                            f"cid:{a.content_id}", f"{content_id_flatened}"
-                        )
+            # remove page css styles in order to combine mail header and content
+            # in one page
+            content = re.sub(r"\{page:.*?\}", "", content)
 
-                # remove page css styles in order to combine mail header and content
-                # in one page
-                content = re.sub(r"\{page:.*?\}", "", content)
+            html_mail_html.write_text(
+                create_html_header(get_header(parsed)) + content
+            )
 
-                html_mail_html.write_text(
-                    create_html_header(get_header(parsed)) + content if content else ""
-                )
+            with GotenbergClient(
+                gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+            ) as client:
+                with client.chromium.html_to_pdf() as route:
+                    # Set page size, margins
+                    route.margins(
+                        PageMarginsType(
+                            top=Measurement(0.1, MeasurementUnitType.Inches),
+                            bottom=Measurement(0.1, MeasurementUnitType.Inches),
+                            left=Measurement(0.1, MeasurementUnitType.Inches),
+                            right=Measurement(0.1, MeasurementUnitType.Inches),
+                        ),
+                    ).size(A4).scale(1.0)
 
-                with GotenbergClient(
-                    gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
-                ) as client:
-                    with client.chromium.html_to_pdf() as route:
-                        # Set page size, margins
-                        route.margins(
-                            PageMarginsType(
-                                top=Measurement(0.1, MeasurementUnitType.Inches),
-                                bottom=Measurement(0.1, MeasurementUnitType.Inches),
-                                left=Measurement(0.1, MeasurementUnitType.Inches),
-                                right=Measurement(0.1, MeasurementUnitType.Inches),
-                            ),
-                        ).size(A4).scale(1.0)
+                    r = route.index(html_mail_html)
+                    if inline_attachments:
+                        for y in inline_attachments:
+                            r = r.resource(y)
 
-                        r = route.index(html_mail_html)
-                        if inline_attachments:
-                            for y in inline_attachments:
-                                r = r.resource(y)
+                    response: SingleFileResponse = r.run()
 
-                        response: SingleFileResponse = r.run()
-
-                        response.to_file(html_mail_pdf)
+                    response.to_file(html_mail_pdf)
             return html_mail_pdf
 
         def create_attachments_pdfs(parsed: MailMessage) -> list[Path]:
@@ -322,44 +321,44 @@ class MailDocumentParser(NativeMailDocumentParser):
                 mimetype = from_buffer(attachment.payload, mime=True)
 
                 original_attachment_parsed = False
-                rasterisedDocumentParser = RasterisedDocumentParser()
-                if mimetype in tesseract_mime_types:
-                    rasterisedDocumentParser.parse(path, mimetype)
-                    if rasterisedDocumentParser.text:
-                        self._text = (self._text if self._text else "") + (
-                            f"\n\n= Content attachment: {filename} =\n"
-                            + rasterisedDocumentParser.text
-                        )
-                        original_attachment_parsed = True
-
-                if mimetype == "application/pdf":
-                    pdfs.append(path)
-                else:
-                    path_pdf: Path = self._tempdir / f"{filename}.pdf"
-                    try:
-                        with GotenbergClient(
-                            gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
-                        ) as client:
-                            with client.libre_office.to_pdf() as route:
-                                response: SingleFileResponse = route.convert(path).run()
-                                response.to_file(path_pdf)
-                                pdfs.append(path_pdf)
-                        if not original_attachment_parsed:
-                            # assuming mime-type "application/pdf" is/remains in paperless-ngx.parsers.tesseract._SUPPORTED_MIME_TYPES
-                            rasterisedDocumentParser.parse(path_pdf, "application/pdf")
-                            if rasterisedDocumentParser.text:
-                                self._text = (self._text if self._text else "") + (
-                                    f"\n\n= Content attachment: {filename} =\n"
-                                    + rasterisedDocumentParser.text
-                                )
-                    except Exception:
-                        # if we couldn't convert the attachment to pdf
-                        # create a one-side pdf with a corresponding note
-                        pdfs.append(
-                            create_dummy_pdf(
-                                f"The attachment (filename: <b>{attachment.filename if attachment.filename else 'unknown'}</b> content-type: <b>{attachment.content_type}</b>) could not be converted to PDF."
+                with RasterisedDocumentParser() as rasterisedDocumentParser:
+                    if mimetype in tesseract_mime_types:
+                        rasterisedDocumentParser.parse(path, mimetype)
+                        if rasterisedDocumentParser.text:
+                            self._text = (self._text if self._text else "") + (
+                                f"\n\n= Content attachment: {filename} =\n"
+                                + rasterisedDocumentParser.text
                             )
-                        )
+                            original_attachment_parsed = True
+
+                    if mimetype == "application/pdf":
+                        pdfs.append(path)
+                    else:
+                        path_pdf: Path = self._tempdir / f"{filename}.pdf"
+                        try:
+                            with GotenbergClient(
+                                gotenberg_url, timeout=self.GOTENBERG_TIMEOUT
+                            ) as client:
+                                with client.libre_office.to_pdf() as route:
+                                    response: SingleFileResponse = route.convert(path).run()
+                                    response.to_file(path_pdf)
+                                    pdfs.append(path_pdf)
+                            if not original_attachment_parsed:
+                                # assuming mime-type "application/pdf" is/remains in paperless-ngx.parsers.tesseract._SUPPORTED_MIME_TYPES
+                                rasterisedDocumentParser.parse(path_pdf, "application/pdf")
+                                if rasterisedDocumentParser.text:
+                                    self._text = (self._text if self._text else "") + (
+                                        f"\n\n= Content attachment: {filename} =\n"
+                                        + rasterisedDocumentParser.text
+                                    )
+                        except Exception:
+                            # if we couldn't convert the attachment to pdf
+                            # create a one-side pdf with a corresponding note
+                            pdfs.append(
+                                create_dummy_pdf(
+                                    f"The attachment (filename: <b>{attachment.filename if attachment.filename else 'unknown'}</b> content-type: <b>{attachment.content_type}</b>) could not be converted to PDF."
+                                )
+                            )
             return pdfs
 
         def merge_pdfs(pdfs) -> Path:
@@ -428,21 +427,21 @@ class MailDocumentParser(NativeMailDocumentParser):
         text_pdf: Path | None = None
         html_pdf: Path | None = None
 
-        if pdf_layout != MailRule.PdfLayout.HTML_ONLY and parsed.text:
+        if pdf_layout != MailRule.PdfLayout.HTML_ONLY:
             text_pdf = create_text_mail_pdf(parsed)
 
-        if pdf_layout != MailRule.PdfLayout.TEXT_ONLY and parsed.html:
+        if pdf_layout != MailRule.PdfLayout.TEXT_ONLY:
             html_pdf = create_html_mail_pdf(parsed)
 
         # we include either text or html mail content
         match pdf_layout:
             case MailRule.PdfLayout.TEXT_HTML:  # interpreted as: prefer TEXT over HTML
-                if text_pdf:
+                if (parsed.text or not parsed.html) and text_pdf:
                     pdfs_to_merge.append(text_pdf)
                 elif html_pdf:
                     pdfs_to_merge.append(html_pdf)
             case MailRule.PdfLayout.HTML_TEXT:  # interpreted as: prefer HTML over TEXT
-                if html_pdf:
+                if (parsed.html or not parsed.text) and html_pdf:
                     pdfs_to_merge.append(html_pdf)
                 elif text_pdf:
                     pdfs_to_merge.append(text_pdf)
@@ -502,6 +501,10 @@ class MailDocumentParser(NativeMailDocumentParser):
                 )
 
         self._archive_path = final_pdf
+
+
+    def get_date(self):
+        return self.date
 
     @property
     def can_produce_archive(self) -> bool:

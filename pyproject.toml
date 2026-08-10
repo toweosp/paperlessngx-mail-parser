@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "paperlessngx_mail_parser"
-version = "v3.0.1"
+version = "v3.0.2"
 authors = [
   { name="toweosp", email="dev@toweosp.org" },
 ]
@@ -25,3 +25,16 @@ Issues = "https://github.com/toweosp/paperlessngx-mail-parser/issues"
 
 [project.entry-points."paperless_ngx.parsers"]
 paperlessngx_mail_parser = "paperlessngx_mail_parser.parsers:MailDocumentParser"
+
+[tool.pytest]
+DJANGO_SETTINGS_MODULE = "paperless.settings"
+pythonpath = ["../paperless-ngx/src", "src"]
+addopts = [
+    "--import-mode=importlib",
+]
+
+[tool.pytest_env]
+PAPERLESS_SECRET_KEY = "test-secret-key-do-not-use-in-production"
+PAPERLESS_DISABLE_DBHANDLER = "true"
+PAPERLESS_CACHE_BACKEND = "django.core.cache.backends.locmem.LocMemCache"
+PAPERLESS_CHANNELS_BACKEND = "channels.layers.InMemoryChannelLayer"

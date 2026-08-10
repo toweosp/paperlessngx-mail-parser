@@ -1,0 +1,8 @@
+From: Alice Example <alice@example.com>
+To: Bob Example <bob@example.com>
+Subject: Test message
+Date: Sun, 02 Aug 2026 13:21:00 +0000
+Message-ID: <testmessage-123456@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit

@@ -1,0 +1,37 @@
+Subject: test mail
+From: Alice Example <alice@example.com>
+To: Bob Example <bob@example.com>
+Date: Mon, 03 Aug 2026 21:57:06 +0200
+Content-Type: multipart/alternative; boundary="=-3cqjjXcgVnq9ap6ddPlx"
+MIME-Version: 1.0
+
+
+--=-3cqjjXcgVnq9ap6ddPlx
+Content-Type: text/plain
+Content-Transfer-Encoding: 7bit
+
+formatted text
+
+--=-3cqjjXcgVnq9ap6ddPlx
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><style>pre,code,address {
+  margin: 0px;
+}
+h1,h2,h3,h4,h5,h6 {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+ol,ul {
+  margin-top: 0em;
+  margin-bottom: 0em;
+}
+blockquote {
+  margin-top: 0em;
+  margin-bottom: 0em;
+}
+</style></head><body><div><b>formatted text</b></div><div><span></span></di=
+v></body></html>
+
+--=-3cqjjXcgVnq9ap6ddPlx--
