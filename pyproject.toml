@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build >= 0.10.0, <=0.11.32"]
+requires = ["uv_build >= 0.10.0, <0.14"]
 build-backend = "uv_build"
 
 [project]
 name = "paperlessngx_mail_parser"
-version = "v3.0.2"
+version = "v3.5.0"
 authors = [
   { name="toweosp", email="dev@toweosp.org" },
 ]

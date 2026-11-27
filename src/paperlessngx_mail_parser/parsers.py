@@ -1,4 +1,5 @@
 import re
+import shutil
 from subprocess import CalledProcessError
 from uuid import uuid4
 from pathlib import Path
@@ -48,7 +49,7 @@ class MailDocumentParser(NativeMailDocumentParser):
     """
 
     name = "Paperless-ngx mail parser"
-    version = "3.0.2"
+    version = "3.5.0"
     author = "toweosp"
     url = "https://github.com/toweosp/paperlessngx-mail-parser"
 
@@ -471,15 +472,21 @@ class MailDocumentParser(NativeMailDocumentParser):
         # PDFs using gotenberg's pdfa routes.
         pdf_a_format = self._settings_to_gotenberg_pdfa()
         if pdf_a_format is not None:
+            pdfa_number = None
             match pdf_a_format:
                 case PdfAFormat.A2b:
                     pdfa_number = 2
                 case PdfAFormat.A3b:
                     pdfa_number = 3
             if pdfa_number:
+                gs_binary = shutil.which("gs")
+                if gs_binary is None:
+                    raise ParseError(
+                        "Error creating PDF/A. Ghostscript (gs) not found in PATH."
+                    )
                 final_pdfa_version = Path(self._tempdir) / "final_pdfa.pdf"
                 cmd = [
-                    settings.GS_BINARY,
+                    gs_binary,
                     "-q",
                     f"-dPDFA={pdfa_number}",
                     "-dBATCH",

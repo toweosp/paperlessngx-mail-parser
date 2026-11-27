@@ -14,9 +14,7 @@
 ## Prerequisites
 * Paperless-ngx version 3
 
-* Ghostscript ist used for creating PDF/A version of archived file if requested, see 
-
-    https://docs.paperless-ngx.com/configuration/#PAPERLESS_GS_BINARY
+* Ghostscript (`gs`) must be available in `PATH`. It is used for creating the PDF/A version of the archived file if requested, see 
 
     https://docs.paperless-ngx.com/configuration/#PAPERLESS_OCR_COLOR_CONVERSION_STRATEGY
 
